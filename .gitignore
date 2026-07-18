@@ -1,0 +1,47 @@
+# Bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Packaging / build
+build/
+dist/
+*.egg
+*.egg-info/
+.eggs/
+*.whl
+*.tar.gz
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+.python-version
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+PIP-DEPLOY.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
