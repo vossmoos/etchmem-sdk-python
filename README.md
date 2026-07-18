@@ -1,6 +1,6 @@
 # etchmem
 
-**Python SDK for [etchmem-server](https://github.com/andrey-olishchuk/etchmem) — the Knowledge Consolidation Engine for AI agents.**
+**Python SDK for [etchmem-server](https://github.com/vossmoos/etchmem-sdk-python) — the Knowledge Consolidation Engine for AI agents.**
 
 Your agents' daily activity is full of hard-won facts — deals signed, decisions made, preferences learned. etchmem-server turns that stream of raw signals into a clean, typed, versioned knowledge base: one consolidated belief per fact, with confidence, provenance, conflict status, and full version history — queryable at any point in time.
 
