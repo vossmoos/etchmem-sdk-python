@@ -63,9 +63,10 @@ class AsyncEtchMem:
     # ── internal ───────────────────────────────────────────────────────
 
     async def _request(self, method: str, path: str,
-                       json: dict[str, Any] | None = None) -> dict[str, Any]:
+                       json: dict[str, Any] | None = None,
+                       params: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            resp = await self._client.request(method, path, json=json)
+            resp = await self._client.request(method, path, json=json, params=params)
         except httpx.HTTPError as e:
             raise ConnectionError(
                 f"etchmem server unreachable at {self.base_url}: {e}") from e
@@ -87,11 +88,13 @@ class AsyncEtchMem:
         scope: str,
         extract_mode: str = "deferred",
         metadata: dict[str, Any] | None = None,
+        occurred_at: str | float | None = None,
     ) -> RememberResult:
         """Deposit a raw text signal (see :meth:`etchmem.EtchMem.remember`)."""
         payload = await self._request("POST", "/remember", json={
             "data": data, "source": source, "scope": scope,
-            "extract_mode": extract_mode, "metadata": metadata or {}})
+            "extract_mode": extract_mode, "metadata": metadata or {},
+            "occurred_at": occurred_at})
         return RememberResult.from_dict(payload)
 
     async def recall(
@@ -103,12 +106,74 @@ class AsyncEtchMem:
         top_k: int = 5,
         include_signals: bool = True,
         as_of: str | None = None,
+        as_of_basis: str = "ingest",
     ) -> RecallResponse:
         """Semantic recall over etches; ``as_of`` enables time-travel."""
         payload = await self._request("POST", "/recall", json={
             "query": query, "scope": scope, "source": source, "top_k": top_k,
-            "include_signals": include_signals, "as_of": as_of})
+            "include_signals": include_signals, "as_of": as_of,
+            "as_of_basis": as_of_basis})
         return RecallResponse.from_dict(payload)
+
+
+
+
+    async def associate(
+        self,
+        query: str,
+        *,
+        scope: str | None = None,
+        top_k: int = 5,
+        hops: int = 1,
+        as_of: str | None = None,
+        min_score: float = 0.15,
+        as_of_basis: str = "ingest",
+    ) -> Association:
+        """What the memory holds for a phrase.
+
+        Use when you do NOT already know which entity you are asking about.
+        :meth:`recall` ranks beliefs by wording; this also returns every fact
+        about each matched subject and follows declared relations one hop, so a
+        fault reached by wording leads to the part that fixes it — which
+        wording alone never would.
+        """
+        payload = await self._request("POST", "/associate", json={
+            "query": query, "scope": scope, "top_k": top_k, "hops": hops,
+            "as_of": as_of, "min_score": min_score,
+            "as_of_basis": as_of_basis})
+        return Association.from_dict(payload)
+
+    async def know(
+        self,
+        ref: str,
+        *,
+        as_of: str | None = None,
+        entity_type: str | None = None,
+        as_of_basis: str = "ingest",
+    ) -> Knowledge:
+        """EVERY belief about one subject — exhaustive, unlike :meth:`recall`.
+
+        The counterpart to :meth:`recall`: recall retrieves by cue and may miss,
+        ``know`` is direct access to everything held about a subject.
+
+        ``recall`` ranks by embedding distance and returns ``top_k``, so a fact
+        can be absent from the answer without the caller being able to tell.
+        When the question is "what do we know about X", use this.
+
+        ``ref`` is an entity id (``product_msm_0808``) or a surface name
+        (``MSM-0808``, ``MSM 0808``), resolved the way ingestion resolved it.
+        ``as_of`` (ISO-8601) gives the beliefs as they stood then.
+        """
+        params: dict[str, Any] = {}
+        if as_of:
+            params["as_of"] = as_of
+        if entity_type:
+            params["entity_type"] = entity_type
+        if as_of_basis != "ingest":
+            params["as_of_basis"] = as_of_basis
+        payload = await self._request(
+            "GET", f"/entity/{ref}/etches", params=params or None)
+        return Knowledge.from_dict(payload)
 
     async def sleep(self) -> SleepResult:
         """Run one consolidation tick now (batch → extract → fold)."""

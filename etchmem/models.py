@@ -16,11 +16,84 @@ class RememberResult:
     stored: bool
     status: str          # "new" | "duplicate"
     message: str
+    occurred_at: float = 0.0        # event time as stored, epoch seconds
+    occurred_at_declared: bool = False   # False = ingest time was used
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RememberResult":
         return cls(id=d["id"], stored=d["stored"], status=d["status"],
-                   message=d.get("message", ""))
+                   message=d.get("message", ""),
+                   occurred_at=d.get("occurred_at", 0.0) or 0.0,
+                   occurred_at_declared=bool(d.get("occurred_at_declared", False)))
+
+
+@dataclass
+class Association:
+    """What the memory holds for a phrase: beliefs, subjects, connected nodes."""
+    query: str
+    seeds: list[Any]
+    nodes: list[Any]
+    edges: list[Any]
+    contested: int = 0
+    as_of: str | None = None
+
+    def named(self, *types: str) -> list[Any]:
+        """Nodes of these entity types, closest first."""
+        return [n for n in self.nodes if not types or n["entity"]["type"] in types]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Association":
+        return cls(query=d["query"], seeds=d.get("seeds") or [],
+                   nodes=d.get("nodes") or [], edges=d.get("edges") or [],
+                   contested=d.get("contested", 0), as_of=d.get("as_of"))
+
+
+@dataclass
+class EntityInfo:
+    """The canonical subject an Knowledge answer is about."""
+    id: str
+    name: str
+    type: str
+    aliases: list[str]
+    scope: str | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "EntityInfo":
+        return cls(id=d["id"], name=d["name"], type=d["type"],
+                   aliases=list(d.get("aliases") or []), scope=d.get("scope"))
+
+
+@dataclass
+class Knowledge:
+    """Every belief about one subject — exhaustive, not similarity-ranked."""
+    entity: EntityInfo
+    etches: list["Etch"]
+    count: int = 0
+    as_of: str | None = None
+    contested: int = 0
+
+    def __iter__(self):
+        return iter(self.etches)
+
+    def __len__(self) -> int:
+        return len(self.etches)
+
+    def settled(self, min_confidence: float = 0.0) -> list["Etch"]:
+        """Only beliefs safe to state as fact.
+
+        A contested belief is one the engine could not settle; surfacing it as
+        an answer is the failure this whole design exists to prevent. Use the
+        contested ones to raise a question instead.
+        """
+        return [e for e in self.etches
+                if e.status == "settled" and e.confidence >= min_confidence]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Knowledge":
+        return cls(entity=EntityInfo.from_dict(d["entity"]),
+                   etches=[Etch.from_dict(e) for e in d.get("etches") or []],
+                   count=d.get("count", 0), as_of=d.get("as_of"),
+                   contested=d.get("contested", 0))
 
 
 @dataclass
@@ -30,6 +103,7 @@ class RecallResult:
     content: str
     score: float
     origin: str                     # "etch" | "signal"
+    entity_id: str | None = None    # subject slug — pass straight to know()
     entity_name: str | None = None
     property: str | None = None
     value: str | None = None
@@ -44,7 +118,7 @@ class RecallResult:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RecallResult":
         return cls(**{k: d.get(k) for k in (
-            "id", "content", "score", "origin", "entity_name", "property",
+            "id", "content", "score", "origin", "entity_id", "entity_name", "property",
             "value", "status", "confidence", "version", "scope", "source",
             "updated_at")} | {"created_at": d.get("created_at", 0.0)})
 
