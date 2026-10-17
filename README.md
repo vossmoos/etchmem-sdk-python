@@ -2,7 +2,7 @@
 
 **Python SDK for [etchmem-server](https://etchmem.io) — the Knowledge Consolidation Engine for AI agents.**
 
-Compatible with **etchmem-server 0.0.10** (`aolishchuk/etchmem:0.0.10`). Fields added
+Compatible with **etchmem-server 0.0.11** (`aolishchuk/etchmem:0.0.11`). Fields added
 after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay empty against
 older servers.
 
