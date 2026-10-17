@@ -48,19 +48,91 @@ HEALTH_BODY = {"status": "ok", "version": "0.1.0",
                "worker_enabled": True, "claims_anonymization": False}
 
 
-def make_handler(captured: dict):
+# Server 0.0.9 shapes (label + detail, evidence, relations, filtered list).
+EVIDENCE = {"signals": 2, "max_trust": 0.9, "sources": [
+    {"source": "slack.reject", "trust": 0.9, "signals": 1},
+    {"source": "qa.agent", "trust": 0.6, "signals": 1}]}
+DETAILS = [{"value": "vector-db framing",
+            "detail": "Never call etchmem a vector database."}]
+ETCH_FULL = {
+    "id": "etchmem::qa_rejection", "entity_name": "etchmem",
+    "property": "qa_rejection", "current_value": "vector-db framing",
+    "status": "settled", "confidence": 0.96, "narrative": "Editors reject it.",
+    "version": 1, "scope": "content-qa", "source": "slack.reject",
+    "value_entity_id": None, "details": DETAILS, "evidence": EVIDENCE,
+    "claim_ids": ["c1"], "source_ids": ["s1", "s2"],
+    "created_at": 1.0, "updated_at": 2.0}
+KNOW_BODY = {"entity": {"id": "product_msm_0808", "name": "MSM-0808",
+                        "type": "product", "aliases": ["MSM 0808"]},
+             "etches": [ETCH_FULL | {"id": "e1", "status": "settled", "confidence": 0.9},
+                        ETCH_FULL | {"id": "e2", "status": "contested", "confidence": 0.5},
+                        ETCH_FULL | {"id": "e3", "status": "settled", "confidence": 0.4}],
+             "count": 3, "as_of": None, "as_of_basis": "event", "contested": 1}
+ASSOCIATE_BODY = {"query": "bathroom leaks", "seeds": [], "edges": [],
+                  "nodes": [{"entity": {"id": "p1", "name": "DK-1120", "type": "part",
+                                        "aliases": []},
+                             "etches": [], "hops": 1, "score": 0.6,
+                             "reached_via": "fix_procedure"}],
+                  "as_of": None, "contested": 0}
+RECALL_FULL_BODY = {"query": "draft", "as_of": None, "results": [
+    {"id": "etchmem::qa_rejection", "content": "Editors reject it.", "score": 0.71,
+     "origin": "etch", "entity_id": "etchmem", "entity_name": "etchmem",
+     "property": "qa_rejection", "value": "vector-db framing", "status": "settled",
+     "confidence": 0.96, "version": 1, "scope": "content-qa", "source": None,
+     "details": DETAILS, "evidence": EVIDENCE, "created_at": 1.0, "updated_at": 2.0}]}
+DOSSIER_BODY = {
+    "etch": ETCH_FULL,
+    "versions": [{"version": 1, "current_value": "vector-db framing",
+                  "status": "settled", "confidence": 0.96, "narrative": "n",
+                  "details": DETAILS, "evidence": EVIDENCE, "triggered_by": ["c1"],
+                  "created_at": 2.0, "event_at": 1.5}],
+    "claims": [{"id": "c1", "entity_name": "etchmem", "property": "qa_rejection",
+                "value": "vector-db framing", "polarity": "asserted",
+                "detail": "Never call etchmem a vector database.",
+                "corroboration_count": 2, "confidence": 0.7,
+                "sources": ["slack.reject", "qa.agent"],
+                "evidence_signal_ids": ["s1", "s2"], "scope": "content-qa",
+                "event_time": 1.5, "ingest_time": 2.0, "created_at": 2.0}],
+    "signals": [{"id": "s1", "content": "Rejected: never call ...",
+                 "source": "slack.reject", "scope": "content-qa",
+                 "created_at": 2.0, "occurred_at": 1.5}],
+    "signals_omitted": False}
+SLEEP_FULL_BODY = SLEEP_BODY | {
+    "claims_dropped": 1, "subject_retries": 2, "relations_resolved": 3,
+    "entities": {"entities_by_key": 5, "entities_by_fuzzy": 0}}
+STATS_FULL_BODY = STATS_BODY | {"sources_without_trust": ["crm.note"]}
+
+
+def etches_page(request: httpx.Request, total: int = 3) -> dict:
+    """GET /etches: serve `total` etches, paged by limit/offset like the server."""
+    limit = int(request.url.params.get("limit", 500))
+    offset = int(request.url.params.get("offset", 0))
+    ids = [f"e{i}" for i in range(total)][offset:offset + limit]
+    rows = [ETCH_FULL | {"id": i, "entity_type": "product"} for i in ids]
+    return {"etches": rows, "count": len(rows), "total": total,
+            "limit": limit, "offset": offset}
+
+
+def make_handler(captured: dict, full: bool = False):
     def handler(request: httpx.Request) -> httpx.Response:
         captured["request"] = request
+        captured.setdefault("requests", []).append(request)
         routes = {
             ("POST", "/remember"): REMEMBER_BODY,
-            ("POST", "/recall"): RECALL_BODY,
-            ("POST", "/sleep"): SLEEP_BODY,
+            ("POST", "/recall"): RECALL_FULL_BODY if full else RECALL_BODY,
+            ("POST", "/sleep"): SLEEP_FULL_BODY if full else SLEEP_BODY,
             ("POST", "/export"): EXPORT_BODY,
+            ("POST", "/associate"): ASSOCIATE_BODY,
+            ("GET", "/entity/MSM-0808/etches"): KNOW_BODY,
+            ("GET", "/entity/MSM 0808/etches"): KNOW_BODY,
             ("GET", "/etch/etch-1/history"): HISTORY_BODY,
-            ("GET", "/stats"): STATS_BODY,
+            ("GET", "/etch/etchmem::qa_rejection/dossier"): DOSSIER_BODY,
+            ("GET", "/stats"): STATS_FULL_BODY if full else STATS_BODY,
             ("GET", "/health"): HEALTH_BODY,
         }
         key = (request.method, request.url.path)
+        if key == ("GET", "/etches"):
+            return httpx.Response(200, json=etches_page(request))
         if key in routes:
             return httpx.Response(200, json=routes[key])
         return httpx.Response(404, json={"detail": "not found"})
@@ -200,3 +272,130 @@ async def test_async_history_stats_health(amem):
         assert len(await amem.history("etch-1")) == 2
         assert (await amem.stats()).claims == 12
         assert (await amem.health()).worker_enabled is True
+
+
+# ── server 0.0.9 surface: know / associate / etches / dossier / new fields ──
+
+
+@pytest.fixture()
+def full_mem():
+    captured: dict = {}
+    client = httpx.Client(base_url=BASE,
+                          transport=httpx.MockTransport(make_handler(captured, full=True)))
+    m = EtchMem(BASE, client=client)
+    m.captured = captured
+    yield m
+    m.close()
+
+
+@pytest.fixture()
+def full_amem():
+    captured: dict = {}
+    client = httpx.AsyncClient(
+        base_url=BASE, transport=httpx.MockTransport(make_handler(captured, full=True)))
+    m = AsyncEtchMem(BASE, client=client)
+    m.captured = captured
+    return m
+
+
+def test_know_parses_and_filters_settled(full_mem):
+    # 0.3.0 raised NameError here: Knowledge was never imported in the client.
+    k = full_mem.know("MSM-0808", as_of="2026-09-10", as_of_basis="event")
+    assert k.entity.name == "MSM-0808" and len(k) == 3
+    assert k.contested == 1 and k.as_of_basis == "event"
+    assert [e.id for e in k.settled(min_confidence=0.6)] == ["e1"]
+    params = full_mem.captured["request"].url.params
+    assert params["as_of"] == "2026-09-10" and params["as_of_basis"] == "event"
+
+
+def test_know_encodes_ref_in_path(full_mem):
+    full_mem.know("MSM 0808")
+    assert full_mem.captured["request"].url.raw_path == b"/entity/MSM%200808/etches"
+
+
+def test_associate(full_mem):
+    # 0.3.0 raised NameError here: Association was never imported in the client.
+    a = full_mem.associate("bathroom leaks", min_score=0.2)
+    assert a.named("part")[0]["reached_via"] == "fix_procedure"
+    sent = json.loads(full_mem.captured["request"].content)
+    assert sent["min_score"] == 0.2 and sent["hops"] == 1
+
+
+def test_recall_details_and_evidence(full_mem):
+    hit = list(full_mem.recall("draft", scope="content-qa", include_signals=False))[0]
+    assert hit.details[0].value == "vector-db framing"
+    assert hit.details[0].detail.startswith("Never call")
+    assert hit.evidence.max_trust == 0.9
+    assert [s.source for s in hit.evidence.sources] == ["slack.reject", "qa.agent"]
+
+
+def test_etches_filters_become_repeated_params(full_mem):
+    page = full_mem.etches(scope="content-qa", property=["qa_rejection", "tone"],
+                           entity_type="product", min_confidence=0.8, limit=2)
+    params = full_mem.captured["request"].url.params
+    assert params.get_list("property") == ["qa_rejection", "tone"]
+    assert params.get_list("entity_type") == ["product"]
+    assert params["scope"] == "content-qa" and params["min_confidence"] == "0.8"
+    assert "status" not in params
+    assert len(page) == 2 and page.total == 3 and page.has_more
+    assert page.etches[0].entity_type == "product"
+    assert page.etches[0].details[0].value == "vector-db framing"
+
+
+def test_iter_etches_walks_every_page(full_mem):
+    ids = [e.id for e in full_mem.iter_etches(page_size=2, scope="content-qa")]
+    assert ids == ["e0", "e1", "e2"]
+    offsets = [r.url.params["offset"] for r in full_mem.captured["requests"]]
+    assert offsets == ["0", "2"]
+
+
+def test_dossier(full_mem):
+    d = full_mem.dossier("etchmem::qa_rejection")
+    assert d.etch.evidence.signals == 2
+    assert d.versions[0].event_at == 1.5 and d.versions[0].details
+    assert d.claims[0].corroboration_count == 2 and d.claims[0].detail
+    assert d.signals[0].occurred_at == 1.5 and d.signals_omitted is False
+
+
+def test_sleep_and_stats_new_counters(full_mem):
+    t = full_mem.sleep()
+    assert (t.claims_dropped, t.subject_retries, t.relations_resolved) == (1, 2, 3)
+    assert t.entities["entities_by_key"] == 5
+    assert full_mem.stats().sources_without_trust == ["crm.note"]
+
+
+def test_older_server_payloads_still_parse(mem):
+    # A 0.0.4 server omits every new field; defaults must fill them.
+    hit = list(mem.recall("acme"))[0]
+    assert hit.details == [] and hit.evidence is None
+    v = list(mem.history("etch-1"))[0]
+    assert v.event_at == 0.0 and v.details == [] and v.evidence is None
+    assert mem.stats().sources_without_trust == []
+    assert mem.sleep().entities == {}
+
+
+async def test_async_new_surface(full_amem):
+    async with full_amem:
+        assert (await full_amem.know("MSM-0808")).contested == 1
+        assert (await full_amem.associate("leaks")).nodes
+        assert (await full_amem.etches(property="qa_rejection")).total == 3
+        ids = [e.id async for e in full_amem.iter_etches(page_size=2)]
+        assert ids == ["e0", "e1", "e2"]
+        assert (await full_amem.dossier("etchmem::qa_rejection")).claims
+
+
+def test_values_and_retracted_parse():
+    from etchmem.models import Etch, EtchVersion, RecallResult
+    vals = [{"value": "parquet export", "weight": 0.91, "active": True,
+             "last_asserted_at": 2.0, "retracted_at": None},
+            {"value": "csv export", "weight": 0.09, "active": False,
+             "last_asserted_at": 1.0, "retracted_at": 3.0}]
+    e = Etch.from_dict(ETCH_FULL | {"values": vals})
+    assert [v.value for v in e.values] == ["parquet export", "csv export"]
+    assert [v.value for v in e.retracted] == ["csv export"]
+    assert e.retracted[0].retracted_at == 3.0
+    hit = RecallResult.from_dict(RECALL_FULL_BODY["results"][0] | {"values": vals})
+    assert hit.values[1].active is False
+    v = EtchVersion.from_dict(DOSSIER_BODY["versions"][0] | {"values": vals})
+    assert v.values[0].weight == 0.91
+    assert Etch.from_dict(ETCH_FULL).values == []          # older server

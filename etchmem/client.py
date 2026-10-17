@@ -2,18 +2,41 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Sequence
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from etchmem.errors import ConnectionError, error_for_status
 from etchmem.models import (
-    ExportResult, Health, History, RecallResponse, RememberResult,
-    SleepResult, Stats,
+    Association, Dossier, Etch, EtchList, ExportResult, Health, History,
+    Knowledge, RecallResponse, RememberResult, SleepResult, Stats,
 )
 
 DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_TIMEOUT = 30.0
+
+
+def _etch_filters(scope: str | None, property: str | Sequence[str] | None,
+                  entity_type: str | Sequence[str] | None, status: str | None,
+                  min_confidence: float | None, limit: int,
+                  offset: int) -> dict[str, Any]:
+    """Query params for GET /etches; list filters become repeated params."""
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    for key, value in (("scope", scope), ("status", status),
+                       ("min_confidence", min_confidence)):
+        if value is not None:
+            params[key] = value
+    for key, value in (("property", property), ("entity_type", entity_type)):
+        if value:
+            params[key] = [value] if isinstance(value, str) else list(value)
+    return params
+
+
+def _ref_path(ref: str) -> str:
+    """Percent-encode an entity ref for the URL path ("MSM 0808", "R&D #4")."""
+    return quote(ref, safe="")
 
 
 class EtchMem:
@@ -139,9 +162,6 @@ class EtchMem:
             "as_of_basis": as_of_basis})
         return RecallResponse.from_dict(payload)
 
-
-
-
     def associate(
         self,
         query: str,
@@ -196,8 +216,41 @@ class EtchMem:
         if as_of_basis != "ingest":
             params["as_of_basis"] = as_of_basis
         payload = self._request(
-            "GET", f"/entity/{ref}/etches", params=params or None)
+            "GET", f"/entity/{_ref_path(ref)}/etches", params=params or None)
         return Knowledge.from_dict(payload)
+
+    def etches(
+        self,
+        *,
+        scope: str | None = None,
+        property: str | Sequence[str] | None = None,
+        entity_type: str | Sequence[str] | None = None,
+        status: str | None = None,
+        min_confidence: float | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> EtchList:
+        """EVERY belief matching plain filters — exhaustive, not ranked.
+
+        Use when you know the *kind* of belief rather than the subject or the
+        words: "all qa_rejection rules in scope content-qa", "every contested
+        lifecycle_status". ``property`` and ``entity_type`` take one value or a
+        list. Returns one page (newest first); ``total`` counts every match, so
+        page with ``offset`` or use :meth:`iter_etches`.
+        """
+        return EtchList.from_dict(self._request(
+            "GET", "/etches", params=_etch_filters(
+                scope, property, entity_type, status, min_confidence, limit, offset)))
+
+    def iter_etches(self, *, page_size: int = 500, **filters: Any) -> Iterator[Etch]:
+        """Every belief matching the filters of :meth:`etches`, across all pages."""
+        offset = 0
+        while True:
+            page = self.etches(limit=page_size, offset=offset, **filters)
+            yield from page.etches
+            if not page.has_more or not page.etches:
+                return
+            offset += page.count
 
     def sleep(self) -> SleepResult:
         """Run one consolidation tick now (batch → extract → fold)."""
@@ -211,6 +264,15 @@ class EtchMem:
         """Version timeline of one etch (immutable snapshots)."""
         return History.from_dict(
             self._request("GET", f"/etch/{etch_id}/history"))
+
+    def dossier(self, etch_id: str) -> Dossier:
+        """Full provenance of one belief: etch, versions, claims, raw signals.
+
+        The answer to "why does the agent believe that?". Raw signals are
+        withheld (``signals_omitted=True``) when the server anonymizes claims.
+        """
+        return Dossier.from_dict(
+            self._request("GET", f"/etch/{etch_id}/dossier"))
 
     def stats(self) -> Stats:
         """Queue depths and store counts."""

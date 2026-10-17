@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import httpx
 
-from etchmem.client import DEFAULT_BASE_URL, DEFAULT_TIMEOUT
+from etchmem.client import (
+    DEFAULT_BASE_URL, DEFAULT_TIMEOUT, _etch_filters, _ref_path,
+)
 from etchmem.errors import ConnectionError, error_for_status
 from etchmem.models import (
-    ExportResult, Health, History, RecallResponse, RememberResult,
-    SleepResult, Stats,
+    Association, Dossier, Etch, EtchList, ExportResult, Health, History,
+    Knowledge, RecallResponse, RememberResult, SleepResult, Stats,
 )
 
 
@@ -115,9 +118,6 @@ class AsyncEtchMem:
             "as_of_basis": as_of_basis})
         return RecallResponse.from_dict(payload)
 
-
-
-
     async def associate(
         self,
         query: str,
@@ -172,8 +172,42 @@ class AsyncEtchMem:
         if as_of_basis != "ingest":
             params["as_of_basis"] = as_of_basis
         payload = await self._request(
-            "GET", f"/entity/{ref}/etches", params=params or None)
+            "GET", f"/entity/{_ref_path(ref)}/etches", params=params or None)
         return Knowledge.from_dict(payload)
+
+    async def etches(
+        self,
+        *,
+        scope: str | None = None,
+        property: str | Sequence[str] | None = None,
+        entity_type: str | Sequence[str] | None = None,
+        status: str | None = None,
+        min_confidence: float | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> EtchList:
+        """EVERY belief matching plain filters — exhaustive, not ranked.
+
+        Use when you know the *kind* of belief rather than the subject or the
+        words: "all qa_rejection rules in scope content-qa", "every contested
+        lifecycle_status". ``property`` and ``entity_type`` take one value or a
+        list. Returns one page (newest first); ``total`` counts every match, so
+        page with ``offset`` or use :meth:`iter_etches`.
+        """
+        return EtchList.from_dict(await self._request(
+            "GET", "/etches", params=_etch_filters(
+                scope, property, entity_type, status, min_confidence, limit, offset)))
+
+    async def iter_etches(self, *, page_size: int = 500, **filters: Any) -> AsyncIterator[Etch]:
+        """Every belief matching the filters of :meth:`etches`, across all pages."""
+        offset = 0
+        while True:
+            page = await self.etches(limit=page_size, offset=offset, **filters)
+            for etch in page.etches:
+                yield etch
+            if not page.has_more or not page.etches:
+                return
+            offset += page.count
 
     async def sleep(self) -> SleepResult:
         """Run one consolidation tick now (batch → extract → fold)."""
@@ -187,6 +221,15 @@ class AsyncEtchMem:
         """Version timeline of one etch (immutable snapshots)."""
         return History.from_dict(
             await self._request("GET", f"/etch/{etch_id}/history"))
+
+    async def dossier(self, etch_id: str) -> Dossier:
+        """Full provenance of one belief: etch, versions, claims, raw signals.
+
+        The answer to "why does the agent believe that?". Raw signals are
+        withheld (``signals_omitted=True``) when the server anonymizes claims.
+        """
+        return Dossier.from_dict(
+            await self._request("GET", f"/etch/{etch_id}/dossier"))
 
     async def stats(self) -> Stats:
         """Queue depths and store counts."""

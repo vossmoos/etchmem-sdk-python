@@ -24,8 +24,10 @@ from etchmem.errors import (
     NotFoundError, ServerError,
 )
 from etchmem.models import (
-    Association, EntityInfo, Etch, EtchVersion, ExportResult, Health, History,
-    Knowledge, RecallResponse, RecallResult, RememberResult, SleepResult, Stats,
+    Association, Claim, DetailItem, Dossier, EntityInfo, Etch, EtchList,
+    EtchVersion, Evidence, ExportResult, Health, History, Knowledge,
+    RecallResponse, RecallResult, RememberResult, Signal, SleepResult,
+    SourceEvidence, Stats, ValueWeight,
 )
 
 __all__ = [
@@ -41,8 +43,16 @@ __all__ = [
     "SleepResult",
     "ExportResult",
     "Etch",
+    "EtchList",
     "EtchVersion",
     "History",
+    "Dossier",
+    "Claim",
+    "Signal",
+    "DetailItem",
+    "Evidence",
+    "SourceEvidence",
+    "ValueWeight",
     "Stats",
     "Health",
     # errors
@@ -54,4 +64,4 @@ __all__ = [
     "ServerError",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

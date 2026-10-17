@@ -2,7 +2,9 @@
 
 **Python SDK for [etchmem-server](https://etchmem.io) — the Knowledge Consolidation Engine for AI agents.**
 
-Compatible with **etchmem-server 0.0.4**.
+Compatible with **etchmem-server 0.0.10** (`aolishchuk/etchmem:0.0.10`). Fields added
+after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay empty against
+older servers.
 
 Your agents' daily activity is full of hard-won facts — deals signed, decisions made, preferences learned. etchmem-server turns that stream of raw signals into a clean, typed, versioned knowledge base: one consolidated belief per fact, with confidence, provenance, conflict status, and full version history — queryable at any point in time.
 
@@ -37,7 +39,7 @@ for hit in mem.recall("what did Acme sign?", top_k=5):
     print(f"[{hit.origin}] {hit.content}  (confidence={hit.confidence})")
 ```
 
-### Three ways to ask
+### Four ways to ask
 
 Which one you want depends on what you already know. Reaching for the wrong one
 is a quiet source of wrong answers.
@@ -45,6 +47,7 @@ is a quiet source of wrong answers.
 | You know | Method | Returns |
 |---|---|---|
 | the subject | `know(ref)` | every belief about it — exhaustive, ordered by property |
+| the kind of belief (scope, property, subject type) | `etches(...)` | every matching belief across subjects — exhaustive, paged |
 | only words | `recall(query)` | beliefs ranked by wording, `top_k` |
 | words, and want what they connect to | `associate(query)` | the above **plus** each subject's full facts **plus** connected nodes |
 
@@ -54,6 +57,12 @@ facts = mem.know("MSM-0808")            # id or surface name; variants resolve
 for e in facts.settled(min_confidence=0.6):
     print(e.property, "=", e.current_value)
 print(facts.contested, "open questions")
+
+# etches — you know the kind of belief: every QA rule, across all subjects
+for e in mem.iter_etches(scope="content-qa", property="qa_rejection",
+                         min_confidence=0.8):
+    for d in e.details:                  # label + the author's full wording
+        print(e.entity_name, "·", d.value, "—", d.detail)
 
 # recall — you only have words. entity_id chains straight into know()
 for hit in mem.recall("bathroom leaks", top_k=5):
@@ -96,10 +105,13 @@ The SDK mirrors the REST endpoints one-to-one:
 | `remember(data, *, source, scope, extract_mode="deferred", metadata=None, occurred_at=None)` | `POST /remember` | `RememberResult` |
 | `recall(query, *, scope=None, source=None, top_k=5, include_signals=True, as_of=None, as_of_basis="ingest")` | `POST /recall` | `RecallResponse` (iterable of `RecallResult`) |
 | `know(ref, *, as_of=None, entity_type=None, as_of_basis="ingest")` | `GET /entity/{ref}/etches` | `Knowledge` (iterable of `Etch`) |
-| `associate(query, *, scope=None, top_k=5, hops=1, as_of=None, min_score=0.15)` | `POST /associate` | `Association` |
+| `associate(query, *, scope=None, top_k=5, hops=1, as_of=None, min_score=0.15, as_of_basis="ingest")` | `POST /associate` | `Association` |
+| `etches(*, scope=None, property=None, entity_type=None, status=None, min_confidence=None, limit=500, offset=0)` | `GET /etches` | `EtchList` (one page of `Etch`; `.total`, `.has_more`) |
+| `iter_etches(*, page_size=500, **filters)` | `GET /etches` (all pages) | iterator of `Etch` |
 | `sleep()` | `POST /sleep` | `SleepResult` |
 | `export()` | `POST /export` | `ExportResult` (list of `Etch`) |
 | `history(etch_id)` | `GET /etch/{id}/history` | `History` (iterable of `EtchVersion`) |
+| `dossier(etch_id)` | `GET /etch/{id}/dossier` | `Dossier` (etch + versions + claims + raw signals) |
 | `stats()` | `GET /stats` | `Stats` |
 | `health()` | `GET /health` | `Health` |
 
@@ -174,6 +186,41 @@ for v in mem.history(etch_id):
     print(v.version, v.current_value, v.status, v.confidence)
     print("  fact true from", v.event_at, "— we learned it", v.created_at)
 ```
+
+### retracted values
+
+From server 0.0.10 a withdrawn fact ("we no longer need CSV export") is kept, not
+deleted. `current_value` lists only what is still in force; `values` lists every value
+ever asserted, heaviest first, with `active`, `weight`, `last_asserted_at` and
+`retracted_at`:
+
+```python
+for e in mem.know("Acme"):
+    print(e.property, "=", e.current_value)
+    for v in e.retracted:                       # no longer valid, but once was
+        print("   withdrawn:", v.value, "at", v.retracted_at)
+```
+
+### evidence and dossier
+
+`confidence` is built from who said it (source trust declared in the server's
+`ext/*.yaml`) and how many independent sources agree. Every etch and recall hit
+carries the `evidence` behind the number, so you can apply your own rule:
+
+```python
+for hit in mem.recall(paragraph, scope="content-qa", include_signals=False):
+    if hit.evidence and hit.evidence.max_trust >= 0.8:
+        print(hit.value, [s.source for s in hit.evidence.sources])
+```
+
+`dossier(etch_id)` answers "why does the agent believe that?" in one call: the
+etch, its versions, the claims that formed it (with corroboration counts) and the
+raw signals behind them. Raw signals are withheld (`signals_omitted=True`) when
+the server runs with claims anonymization.
+
+`sleep()` also reports `subject_retries`, `relations_resolved` and the
+`entities` resolution counters; `stats().sources_without_trust` lists deposit
+sources nobody declared a trust for.
 
 ---
 
