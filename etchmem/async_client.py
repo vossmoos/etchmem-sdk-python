@@ -13,7 +13,7 @@ from etchmem.client import (
 from etchmem.errors import ConnectionError, error_for_status
 from etchmem.models import (
     Association, Dossier, Etch, EtchList, ExportResult, Health, History,
-    Knowledge, RecallResponse, RememberResult, SleepResult, Stats,
+    Knowledge, RecallResponse, RememberResult, SleepResult, Stats, SignalRecord,
 )
 
 
@@ -230,6 +230,17 @@ class AsyncEtchMem:
         """
         return Dossier.from_dict(
             await self._request("GET", f"/etch/{etch_id}/dossier"))
+
+    async def signal(self, signal_id: str) -> SignalRecord:
+        """What one deposited signal became: its status, the subjects it was found
+        to be about, and every claim extracted from it (server 0.2.0+).
+
+        Use the id ``remember`` returned. etchmem only records; whether that is
+        enough for your task is yours to decide — for example by asking your
+        user and depositing the answer as a new signal.
+        """
+        return SignalRecord.from_dict(
+            await self._request("GET", f"/signal/{signal_id}"))
 
     async def stats(self) -> Stats:
         """Queue depths and store counts."""

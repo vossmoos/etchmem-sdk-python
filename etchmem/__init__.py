@@ -26,7 +26,8 @@ from etchmem.errors import (
 from etchmem.models import (
     Association, Claim, DetailItem, Dossier, EntityInfo, Etch, EtchList,
     EtchVersion, Evidence, ExportResult, Health, History, Knowledge,
-    RecallResponse, RecallResult, RememberResult, Signal, SleepResult,
+    RecallResponse, RecallResult, RememberResult, ResolvedSubject, Signal,
+    SignalRecord, SleepResult,
     SourceEvidence, Stats, ValueWeight,
 )
 
@@ -49,6 +50,8 @@ __all__ = [
     "Dossier",
     "Claim",
     "Signal",
+    "SignalRecord",
+    "ResolvedSubject",
     "DetailItem",
     "Evidence",
     "SourceEvidence",
@@ -64,4 +67,4 @@ __all__ = [
     "ServerError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

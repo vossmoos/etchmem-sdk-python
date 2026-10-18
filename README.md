@@ -2,9 +2,9 @@
 
 **Python SDK for [etchmem-server](https://etchmem.io) — the Knowledge Consolidation Engine for AI agents.**
 
-Compatible with **etchmem-server 0.0.11** (`aolishchuk/etchmem:0.0.11`). Fields added
-after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay empty against
-older servers.
+Compatible with **etchmem-server 0.2.0** (`aolishchuk/etchmem:0.2.0`, also `:latest`).
+Fields added after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay
+empty against older servers; `signal()` needs 0.2.0.
 
 Your agents' daily activity is full of hard-won facts — deals signed, decisions made, preferences learned. etchmem-server turns that stream of raw signals into a clean, typed, versioned knowledge base: one consolidated belief per fact, with confidence, provenance, conflict status, and full version history — queryable at any point in time.
 
@@ -112,6 +112,7 @@ The SDK mirrors the REST endpoints one-to-one:
 | `export()` | `POST /export` | `ExportResult` (list of `Etch`) |
 | `history(etch_id)` | `GET /etch/{id}/history` | `History` (iterable of `EtchVersion`) |
 | `dossier(etch_id)` | `GET /etch/{id}/dossier` | `Dossier` (etch + versions + claims + raw signals) |
+| `signal(signal_id)` | `GET /signal/{id}` | `SignalRecord` (status + subjects + claims of one deposit) |
 | `stats()` | `GET /stats` | `Stats` |
 | `health()` | `GET /health` | `Health` |
 
@@ -218,9 +219,38 @@ etch, its versions, the claims that formed it (with corroboration counts) and th
 raw signals behind them. Raw signals are withheld (`signals_omitted=True`) when
 the server runs with claims anonymization.
 
-`sleep()` also reports `subject_retries`, `relations_resolved` and the
-`entities` resolution counters; `stats().sources_without_trust` lists deposit
-sources nobody declared a trust for.
+`sleep()` also reports `subject_retries`, `relations_resolved`,
+`claims_unsupported` (claims the server's verify step found the signal not to
+state) and the `entities` resolution counters; `stats().sources_without_trust`
+lists deposit sources nobody declared a trust for.
+
+### what a signal became
+
+From server 0.2.0 a model first decides what each signal is *about*, then
+extracts its claims, and a second reading drops the claims the signal does not
+state. `signal(id)` — with the id `remember` returned — shows the result for one
+deposit:
+
+```python
+res = mem.remember("As an idea, we add the links to the registration.",
+                   source="slack", scope="lift")
+rec = mem.signal(res.id)
+if rec.extracted:
+    print([s.name for s in rec.subjects])     # [] = about no identifiable subject
+    for c in rec.claims:
+        print(c.entity_name, c.property, c.value)
+```
+
+`status` is `new`, `batched` or `extracted`; there are no claims before
+`extracted`. `subjects` is `None` until the signal is resolved, and each
+`ResolvedSubject` carries the signal's own words that refer to it (`quote`) and
+the model's `reason`.
+
+etchmem only records. Whether what it recorded is enough for *your* task is
+yours to decide — for example: a signal about work that produced no claims on
+that work, so you ask your user which work it was, and deposit the answer as a
+new signal (with the question and the original message in its text), which is
+extracted like any other.
 
 ---
 

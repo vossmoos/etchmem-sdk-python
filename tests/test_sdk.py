@@ -97,8 +97,25 @@ DOSSIER_BODY = {
                  "source": "slack.reject", "scope": "content-qa",
                  "created_at": 2.0, "occurred_at": 1.5}],
     "signals_omitted": False}
+SIGNAL_BODY = {
+    "id": "sig-1", "content": "Slack — Andrey: As an idea, we add the links.",
+    "source": "slack", "scope": "lift", "status": "extracted", "canonical_id": "sig-1",
+    "metadata": {"channel": "C1", "ts": "1.0", "subjects": [
+        {"name": "followup-3", "entity_type": "feature", "existing": True,
+         "quote": "the links", "reason": "the thread is about followup-3"}]},
+    "created_at": 2.0, "occurred_at": 1.5,
+    "claims": [{"id": "c9", "entity_name": "followup-3", "property": "idea",
+                "value": "add links", "polarity": "asserted", "detail": "As an idea, we add the links.",
+                "corroboration_count": 1, "confidence": 0.85, "sources": ["slack"],
+                "evidence_signal_ids": ["sig-1"], "scope": "lift",
+                "event_time": 1.5, "ingest_time": 2.0, "created_at": 2.0}]}
+SIGNAL_NEW_BODY = {"id": "sig-2", "content": "x", "source": "slack", "scope": "lift",
+                   "status": "new", "canonical_id": None, "metadata": {"ts": "2.0"},
+                   "created_at": 3.0, "occurred_at": 0.0, "claims": []}
+SIGNAL_NONE_BODY = SIGNAL_NEW_BODY | {"id": "sig-3", "status": "extracted",
+                                      "metadata": {"subjects": []}}
 SLEEP_FULL_BODY = SLEEP_BODY | {
-    "claims_dropped": 1, "subject_retries": 2, "relations_resolved": 3,
+    "claims_dropped": 1, "claims_unsupported": 4, "subject_retries": 2, "relations_resolved": 3,
     "entities": {"entities_by_key": 5, "entities_by_fuzzy": 0}}
 STATS_FULL_BODY = STATS_BODY | {"sources_without_trust": ["crm.note"]}
 
@@ -127,6 +144,9 @@ def make_handler(captured: dict, full: bool = False):
             ("GET", "/entity/MSM 0808/etches"): KNOW_BODY,
             ("GET", "/etch/etch-1/history"): HISTORY_BODY,
             ("GET", "/etch/etchmem::qa_rejection/dossier"): DOSSIER_BODY,
+            ("GET", "/signal/sig-1"): SIGNAL_BODY,
+            ("GET", "/signal/sig-2"): SIGNAL_NEW_BODY,
+            ("GET", "/signal/sig-3"): SIGNAL_NONE_BODY,
             ("GET", "/stats"): STATS_FULL_BODY if full else STATS_BODY,
             ("GET", "/health"): HEALTH_BODY,
         }
@@ -357,9 +377,31 @@ def test_dossier(full_mem):
     assert d.signals[0].occurred_at == 1.5 and d.signals_omitted is False
 
 
+def test_signal_reports_status_subjects_and_claims(full_mem):
+    r = full_mem.signal("sig-1")
+    assert r.extracted and r.status == "extracted" and r.occurred_at == 1.5
+    assert [(s.name, s.entity_type, s.existing) for s in r.subjects] == [("followup-3", "feature", True)]
+    assert r.subjects[0].quote == "the links"
+    assert [(c.entity_name, c.property, c.value) for c in r.claims] == [("followup-3", "idea", "add links")]
+    assert r.metadata["channel"] == "C1"
+
+
+def test_signal_not_yet_extracted_and_about_nothing(full_mem):
+    pending = full_mem.signal("sig-2")
+    assert not pending.extracted and pending.claims == [] and pending.subjects is None
+    nothing = full_mem.signal("sig-3")
+    assert nothing.extracted and nothing.subjects == []
+
+
+def test_signal_unknown_id_raises_not_found(full_mem):
+    with pytest.raises(NotFoundError):
+        full_mem.signal("nope")
+
+
 def test_sleep_and_stats_new_counters(full_mem):
     t = full_mem.sleep()
     assert (t.claims_dropped, t.subject_retries, t.relations_resolved) == (1, 2, 3)
+    assert t.claims_unsupported == 4
     assert t.entities["entities_by_key"] == 5
     assert full_mem.stats().sources_without_trust == ["crm.note"]
 
@@ -382,6 +424,7 @@ async def test_async_new_surface(full_amem):
         ids = [e.id async for e in full_amem.iter_etches(page_size=2)]
         assert ids == ["e0", "e1", "e2"]
         assert (await full_amem.dossier("etchmem::qa_rejection")).claims
+        assert (await full_amem.signal("sig-1")).subjects[0].name == "followup-3"
 
 
 def test_values_and_retracted_parse():

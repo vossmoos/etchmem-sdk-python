@@ -334,6 +334,7 @@ class SleepResult:
     etches_updated: int
     contested: int
     claims_dropped: int = 0
+    claims_unsupported: int = 0     # claims the verify step found the signal not to state
     subject_retries: int = 0        # rising = extractor prompt problem
     relations_resolved: int = 0
     entities: dict[str, int] = field(default_factory=dict)  # by_key / by_fuzzy / ...
@@ -343,7 +344,7 @@ class SleepResult:
         return cls(**{k: d.get(k, 0) for k in (
             "batched", "extracted_signals", "claims_written", "pairs_folded",
             "etches_formed", "etches_updated", "contested", "claims_dropped",
-            "subject_retries", "relations_resolved")}
+            "claims_unsupported", "subject_retries", "relations_resolved")}
             | {"entities": dict(d.get("entities") or {})})
 
 
@@ -478,6 +479,63 @@ class Dossier:
                    claims=[Claim.from_dict(c) for c in d.get("claims") or []],
                    signals=[Signal.from_dict(s) for s in d.get("signals") or []],
                    signals_omitted=bool(d.get("signals_omitted", False)))
+
+
+@dataclass
+class ResolvedSubject:
+    """What a signal was found to be about (server 0.2.0+): the subject, whether
+    it already existed, the signal's own words that refer to it, and why."""
+    name: str
+    entity_type: str
+    existing: bool
+    quote: str = ""
+    reason: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ResolvedSubject":
+        return cls(name=d.get("name", ""), entity_type=d.get("entity_type", ""),
+                   existing=bool(d.get("existing", False)), quote=d.get("quote", "") or "",
+                   reason=d.get("reason", "") or "")
+
+
+@dataclass
+class SignalRecord:
+    """Response of GET /signal/{id} — what one deposited signal became.
+
+    ``status`` is ``new``, ``batched`` or ``extracted``; until it is
+    ``extracted`` there are no claims yet. ``subjects`` is ``None`` while the
+    signal is unresolved (or on a server without the resolve step) and ``[]``
+    when it was found to be about no identifiable subject. ``content`` is
+    ``None`` when the server anonymizes claims.
+    """
+    id: str
+    source: str
+    scope: str
+    status: str
+    content: str | None = None
+    canonical_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    occurred_at: float = 0.0
+    claims: list[Claim] = field(default_factory=list)
+
+    @property
+    def extracted(self) -> bool:
+        return self.status == "extracted"
+
+    @property
+    def subjects(self) -> list[ResolvedSubject] | None:
+        raw = self.metadata.get("subjects")
+        return None if raw is None else [ResolvedSubject.from_dict(x) for x in raw]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "SignalRecord":
+        return cls(id=d["id"], source=d.get("source", ""), scope=d.get("scope", ""),
+                   status=d.get("status", ""), content=d.get("content"),
+                   canonical_id=d.get("canonical_id"), metadata=dict(d.get("metadata") or {}),
+                   created_at=d.get("created_at", 0.0) or 0.0,
+                   occurred_at=d.get("occurred_at", 0.0) or 0.0,
+                   claims=[Claim.from_dict(c) for c in d.get("claims") or []])
 
 
 # ── stats / health ─────────────────────────────────────────────────────────
