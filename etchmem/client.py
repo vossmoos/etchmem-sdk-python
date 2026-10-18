@@ -11,7 +11,7 @@ import httpx
 from etchmem.errors import ConnectionError, error_for_status
 from etchmem.models import (
     Association, Dossier, Etch, EtchList, ExportResult, Health, History,
-    Knowledge, RecallResponse, RememberResult, SleepResult, Stats, SignalRecord,
+    Knowledge, RecallResponse, RememberResult, SleepResult, Stats, SignalRecord, ContextRecord,
 )
 
 DEFAULT_BASE_URL = "http://localhost:8000"
@@ -121,6 +121,8 @@ class EtchMem:
         extract_mode: str = "deferred",
         metadata: dict[str, Any] | None = None,
         occurred_at: str | float | None = None,
+        context: str | None = None,
+        context_parent: str | None = None,
     ) -> RememberResult:
         """Deposit a raw text signal.
 
@@ -133,11 +135,18 @@ class EtchMem:
         loading historical records — otherwise every signal carries today's
         date and the server cannot order them against each other. The result
         echoes the parsed value so a bulk load can verify it was understood.
+
+        ``context`` names the conversation it was said in — a Slack thread, a
+        ticket's comments, a meeting — and ``context_parent`` the one around it
+        (the channel). The server then reads the signal with what that
+        conversation has been about (server 0.3.0+). Plain ids you choose; the
+        same words in another context are another signal.
         """
         payload = self._request("POST", "/remember", json={
             "data": data, "source": source, "scope": scope,
             "extract_mode": extract_mode, "metadata": metadata or {},
-            "occurred_at": occurred_at})
+            "occurred_at": occurred_at, "context": context,
+            "context_parent": context_parent})
         return RememberResult.from_dict(payload)
 
     def recall(
@@ -284,6 +293,13 @@ class EtchMem:
         """
         return SignalRecord.from_dict(
             self._request("GET", f"/signal/{signal_id}"))
+
+    def context(self, context_id: str) -> ContextRecord:
+        """One conversation as recorded (the id you passed as ``context`` or
+        ``context_parent``): what it has been about, most recent first, and its
+        signals in the order they were said (server 0.3.0+)."""
+        return ContextRecord.from_dict(
+            self._request("GET", f"/context/{context_id}"))
 
     def stats(self) -> Stats:
         """Queue depths and store counts."""

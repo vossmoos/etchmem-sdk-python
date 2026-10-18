@@ -100,15 +100,26 @@ DOSSIER_BODY = {
 SIGNAL_BODY = {
     "id": "sig-1", "content": "Slack — Andrey: As an idea, we add the links.",
     "source": "slack", "scope": "lift", "status": "extracted", "canonical_id": "sig-1",
+    "context": "slack:C1:1.0", "context_parent": "slack:C1",
     "metadata": {"channel": "C1", "ts": "1.0", "subjects": [
         {"name": "followup-3", "entity_type": "feature", "existing": True,
-         "quote": "the links", "reason": "the thread is about followup-3"}]},
+         "quote": "the links", "reason": "the thread is about followup-3", "in_focus": True}],
+        "associations": [{"name": "LIFT-22", "entity_type": "ticket",
+                          "reason": "earlier followup work, done"}],
+        "focus": ["followup-3 (feature)"]},
     "created_at": 2.0, "occurred_at": 1.5,
     "claims": [{"id": "c9", "entity_name": "followup-3", "property": "idea",
                 "value": "add links", "polarity": "asserted", "detail": "As an idea, we add the links.",
                 "corroboration_count": 1, "confidence": 0.85, "sources": ["slack"],
                 "evidence_signal_ids": ["sig-1"], "scope": "lift",
                 "event_time": 1.5, "ingest_time": 2.0, "created_at": 2.0}]}
+CONTEXT_BODY = {"id": "slack:C1:1.0",
+                "focus": [{"entity_id": "ticket_lift_38", "name": "LIFT-38", "entity_type": "ticket",
+                           "mentions": 1, "last_seen_at": 3.0},
+                          {"entity_id": "feature_followup_3", "name": "followup-3",
+                           "entity_type": "feature", "mentions": 2, "last_seen_at": 2.0}],
+                "signals": [{"id": "sig-1", "content": "x", "source": "slack", "status": "extracted",
+                             "context": "slack:C1:1.0", "occurred_at": 1.5}]}
 SIGNAL_NEW_BODY = {"id": "sig-2", "content": "x", "source": "slack", "scope": "lift",
                    "status": "new", "canonical_id": None, "metadata": {"ts": "2.0"},
                    "created_at": 3.0, "occurred_at": 0.0, "claims": []}
@@ -145,6 +156,7 @@ def make_handler(captured: dict, full: bool = False):
             ("GET", "/etch/etch-1/history"): HISTORY_BODY,
             ("GET", "/etch/etchmem::qa_rejection/dossier"): DOSSIER_BODY,
             ("GET", "/signal/sig-1"): SIGNAL_BODY,
+            ("GET", "/context/slack:C1:1.0"): CONTEXT_BODY,
             ("GET", "/signal/sig-2"): SIGNAL_NEW_BODY,
             ("GET", "/signal/sig-3"): SIGNAL_NONE_BODY,
             ("GET", "/stats"): STATS_FULL_BODY if full else STATS_BODY,
@@ -386,6 +398,31 @@ def test_signal_reports_status_subjects_and_claims(full_mem):
     assert r.metadata["channel"] == "C1"
 
 
+def test_signal_context_focus_and_associations(full_mem):
+    r = full_mem.signal("sig-1")
+    assert (r.context, r.context_parent) == ("slack:C1:1.0", "slack:C1")
+    assert r.focus == ["followup-3 (feature)"] and r.subjects[0].in_focus
+    assert [(a.name, a.reason) for a in r.associations] == [("LIFT-22", "earlier followup work, done")]
+    old = full_mem.signal("sig-2")                         # deposited without a context
+    assert old.context is None and old.focus is None and old.associations == []
+
+
+def test_context_record(full_mem):
+    c = full_mem.context("slack:C1:1.0")
+    assert [f.name for f in c.focus] == ["LIFT-38", "followup-3"] and c.focus[1].mentions == 2
+    assert [x.id for x in c.signals] == ["sig-1"]
+
+
+def test_remember_sends_the_context(mem):
+    mem.remember("this ticket is done", source="slack", scope="lift",
+                 context="slack:C1:1.0", context_parent="slack:C1")
+    sent = json.loads(mem.captured["request"].content)
+    assert (sent["context"], sent["context_parent"]) == ("slack:C1:1.0", "slack:C1")
+    mem.remember("x", source="a", scope="s")
+    sent = json.loads(mem.captured["request"].content)
+    assert sent["context"] is None and sent["context_parent"] is None
+
+
 def test_signal_not_yet_extracted_and_about_nothing(full_mem):
     pending = full_mem.signal("sig-2")
     assert not pending.extracted and pending.claims == [] and pending.subjects is None
@@ -425,6 +462,7 @@ async def test_async_new_surface(full_amem):
         assert ids == ["e0", "e1", "e2"]
         assert (await full_amem.dossier("etchmem::qa_rejection")).claims
         assert (await full_amem.signal("sig-1")).subjects[0].name == "followup-3"
+        assert (await full_amem.context("slack:C1:1.0")).focus[0].name == "LIFT-38"
 
 
 def test_values_and_retracted_parse():

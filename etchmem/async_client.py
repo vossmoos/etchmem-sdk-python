@@ -13,7 +13,7 @@ from etchmem.client import (
 from etchmem.errors import ConnectionError, error_for_status
 from etchmem.models import (
     Association, Dossier, Etch, EtchList, ExportResult, Health, History,
-    Knowledge, RecallResponse, RememberResult, SleepResult, Stats, SignalRecord,
+    Knowledge, RecallResponse, RememberResult, SleepResult, Stats, SignalRecord, ContextRecord,
 )
 
 
@@ -92,12 +92,15 @@ class AsyncEtchMem:
         extract_mode: str = "deferred",
         metadata: dict[str, Any] | None = None,
         occurred_at: str | float | None = None,
+        context: str | None = None,
+        context_parent: str | None = None,
     ) -> RememberResult:
         """Deposit a raw text signal (see :meth:`etchmem.EtchMem.remember`)."""
         payload = await self._request("POST", "/remember", json={
             "data": data, "source": source, "scope": scope,
             "extract_mode": extract_mode, "metadata": metadata or {},
-            "occurred_at": occurred_at})
+            "occurred_at": occurred_at, "context": context,
+            "context_parent": context_parent})
         return RememberResult.from_dict(payload)
 
     async def recall(
@@ -241,6 +244,11 @@ class AsyncEtchMem:
         """
         return SignalRecord.from_dict(
             await self._request("GET", f"/signal/{signal_id}"))
+
+    async def context(self, context_id: str) -> ContextRecord:
+        """One conversation as recorded (see :meth:`etchmem.EtchMem.context`)."""
+        return ContextRecord.from_dict(
+            await self._request("GET", f"/context/{context_id}"))
 
     async def stats(self) -> Stats:
         """Queue depths and store counts."""

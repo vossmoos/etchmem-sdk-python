@@ -2,9 +2,9 @@
 
 **Python SDK for [etchmem-server](https://etchmem.io) — the Knowledge Consolidation Engine for AI agents.**
 
-Compatible with **etchmem-server 0.2.0** (`aolishchuk/etchmem:0.2.0`, also `:latest`).
-Fields added after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay
-empty against older servers; `signal()` needs 0.2.0.
+Compatible with **etchmem-server 0.3.0** (`aolishchuk/etchmem:0.3.0`). Fields added
+after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay empty against
+older servers; `signal()` needs 0.2.0, contexts and `context()` need 0.3.0.
 
 Your agents' daily activity is full of hard-won facts — deals signed, decisions made, preferences learned. etchmem-server turns that stream of raw signals into a clean, typed, versioned knowledge base: one consolidated belief per fact, with confidence, provenance, conflict status, and full version history — queryable at any point in time.
 
@@ -102,7 +102,7 @@ The SDK mirrors the REST endpoints one-to-one:
 
 | Method | Endpoint | Returns |
 |---|---|---|
-| `remember(data, *, source, scope, extract_mode="deferred", metadata=None, occurred_at=None)` | `POST /remember` | `RememberResult` |
+| `remember(data, *, source, scope, extract_mode="deferred", metadata=None, occurred_at=None, context=None, context_parent=None)` | `POST /remember` | `RememberResult` |
 | `recall(query, *, scope=None, source=None, top_k=5, include_signals=True, as_of=None, as_of_basis="ingest")` | `POST /recall` | `RecallResponse` (iterable of `RecallResult`) |
 | `know(ref, *, as_of=None, entity_type=None, as_of_basis="ingest")` | `GET /entity/{ref}/etches` | `Knowledge` (iterable of `Etch`) |
 | `associate(query, *, scope=None, top_k=5, hops=1, as_of=None, min_score=0.15, as_of_basis="ingest")` | `POST /associate` | `Association` |
@@ -113,6 +113,7 @@ The SDK mirrors the REST endpoints one-to-one:
 | `history(etch_id)` | `GET /etch/{id}/history` | `History` (iterable of `EtchVersion`) |
 | `dossier(etch_id)` | `GET /etch/{id}/dossier` | `Dossier` (etch + versions + claims + raw signals) |
 | `signal(signal_id)` | `GET /signal/{id}` | `SignalRecord` (status + subjects + claims of one deposit) |
+| `context(context_id)` | `GET /context/{id}` | `ContextRecord` (a conversation's focus + its signals) |
 | `stats()` | `GET /stats` | `Stats` |
 | `health()` | `GET /health` | `Health` |
 
@@ -245,6 +246,31 @@ if rec.extracted:
 `extracted`. `subjects` is `None` until the signal is resolved, and each
 `ResolvedSubject` carries the signal's own words that refer to it (`quote`) and
 the model's `reason`.
+
+### conversations: context, focus, associations
+
+From server 0.3.0 a signal can say where it was said. Pass `context` (the
+conversation: a Slack thread, a ticket's comments, a meeting) and
+`context_parent` (the one around it: the channel) — plain ids you choose:
+
+```python
+res = mem.remember("By the way, this ticket is done now.",
+                   source="slack", scope="lift",
+                   context="slack:C0CA6:1792314791.81",   # the thread
+                   context_parent="slack:C0CA6")          # its channel
+rec = mem.signal(res.id)
+rec.focus          # what the thread was about when it was said
+rec.subjects       # "this ticket" -> the ticket that tracks the thread's feature
+rec.associations   # related work it brought to mind (recorded, never claims)
+mem.context("slack:C0CA6:1792314791.81").focus
+```
+
+The server reads the signal in its conversation first: unless it clearly turns
+to something else, it is about the conversation's focus. Related knowledge it
+recalls is kept as `associations` with a reason — whether to flag it is yours.
+Signals of one conversation are read in the order they were said; the same words
+in another context are another signal. Without a context a signal is read as
+before.
 
 etchmem only records. Whether what it recorded is enough for *your* task is
 yours to decide — for example: a signal about work that produced no claims on

@@ -490,11 +490,26 @@ class ResolvedSubject:
     existing: bool
     quote: str = ""
     reason: str = ""
+    in_focus: bool = False          # the conversation was already about it (0.3.0+)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ResolvedSubject":
         return cls(name=d.get("name", ""), entity_type=d.get("entity_type", ""),
                    existing=bool(d.get("existing", False)), quote=d.get("quote", "") or "",
+                   reason=d.get("reason", "") or "", in_focus=bool(d.get("in_focus", False)))
+
+
+@dataclass
+class AssociatedSubject:
+    """Related knowledge a signal brought to mind — an earlier iteration, a ticket
+    that already covers it — recorded with the reason. Never a claim (0.3.0+)."""
+    name: str
+    entity_type: str
+    reason: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "AssociatedSubject":
+        return cls(name=d.get("name", ""), entity_type=d.get("entity_type", ""),
                    reason=d.get("reason", "") or "")
 
 
@@ -514,6 +529,8 @@ class SignalRecord:
     status: str
     content: str | None = None
     canonical_id: str | None = None
+    context: str | None = None             # the conversation it was said in (0.3.0+)
+    context_parent: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
     occurred_at: float = 0.0
@@ -528,14 +545,72 @@ class SignalRecord:
         raw = self.metadata.get("subjects")
         return None if raw is None else [ResolvedSubject.from_dict(x) for x in raw]
 
+    @property
+    def associations(self) -> list[AssociatedSubject]:
+        """Related knowledge it brought to mind; recorded, never claims."""
+        return [AssociatedSubject.from_dict(x) for x in self.metadata.get("associations") or []]
+
+    @property
+    def focus(self) -> list[str] | None:
+        """What its conversation was about when it was said ("name (type)"),
+        or None for a signal deposited without a context."""
+        return self.metadata.get("focus")
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SignalRecord":
         return cls(id=d["id"], source=d.get("source", ""), scope=d.get("scope", ""),
                    status=d.get("status", ""), content=d.get("content"),
-                   canonical_id=d.get("canonical_id"), metadata=dict(d.get("metadata") or {}),
+                   canonical_id=d.get("canonical_id"), context=d.get("context"),
+                   context_parent=d.get("context_parent"),
+                   metadata=dict(d.get("metadata") or {}),
                    created_at=d.get("created_at", 0.0) or 0.0,
                    occurred_at=d.get("occurred_at", 0.0) or 0.0,
                    claims=[Claim.from_dict(c) for c in d.get("claims") or []])
+
+
+@dataclass
+class ContextSubject:
+    entity_id: str
+    name: str
+    entity_type: str
+    mentions: int = 0
+    last_seen_at: float = 0.0
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ContextSubject":
+        return cls(entity_id=d["entity_id"], name=d.get("name", ""),
+                   entity_type=d.get("entity_type", ""), mentions=d.get("mentions", 0) or 0,
+                   last_seen_at=d.get("last_seen_at", 0.0) or 0.0)
+
+
+@dataclass
+class ContextSignal:
+    id: str
+    source: str
+    status: str
+    content: str | None = None
+    context: str | None = None
+    occurred_at: float = 0.0
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ContextSignal":
+        return cls(id=d["id"], source=d.get("source", ""), status=d.get("status", ""),
+                   content=d.get("content"), context=d.get("context"),
+                   occurred_at=d.get("occurred_at", 0.0) or 0.0)
+
+
+@dataclass
+class ContextRecord:
+    """Response of GET /context/{id} — one conversation: what it has been about
+    (most recent first) and its signals in the order they were said."""
+    id: str
+    focus: list[ContextSubject] = field(default_factory=list)
+    signals: list[ContextSignal] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ContextRecord":
+        return cls(id=d["id"], focus=[ContextSubject.from_dict(x) for x in d.get("focus") or []],
+                   signals=[ContextSignal.from_dict(x) for x in d.get("signals") or []])
 
 
 # ── stats / health ─────────────────────────────────────────────────────────
