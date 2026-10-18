@@ -551,6 +551,12 @@ class SignalRecord:
         return [AssociatedSubject.from_dict(x) for x in self.metadata.get("associations") or []]
 
     @property
+    def meaning(self) -> str:
+        """For a reply that refers back ("let us implement that"): what it says with
+        those references spelled out. Empty when the signal stands on its own (0.3.1+)."""
+        return str(self.metadata.get("meaning") or "")
+
+    @property
     def focus(self) -> list[str] | None:
         """What its conversation was about when it was said ("name (type)"),
         or None for a signal deposited without a context."""

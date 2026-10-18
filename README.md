@@ -2,7 +2,7 @@
 
 **Python SDK for [etchmem-server](https://etchmem.io) — the Knowledge Consolidation Engine for AI agents.**
 
-Compatible with **etchmem-server 0.3.0** (`aolishchuk/etchmem:0.3.0`). Fields added
+Compatible with **etchmem-server 0.3.1** (`aolishchuk/etchmem:0.3.1`). Fields added
 after 0.0.4 (`details`, `evidence`, `event_at`, `values`, …) simply stay empty against
 older servers; `signal()` needs 0.2.0, contexts and `context()` need 0.3.0.
 
@@ -262,6 +262,7 @@ rec = mem.signal(res.id)
 rec.focus          # what the thread was about when it was said
 rec.subjects       # "this ticket" -> the ticket that tracks the thread's feature
 rec.associations   # related work it brought to mind (recorded, never claims)
+rec.meaning        # a reply like "let us implement that", references spelled out
 mem.context("slack:C0CA6:1792314791.81").focus
 ```
 
@@ -270,7 +271,10 @@ to something else, it is about the conversation's focus. Related knowledge it
 recalls is kept as `associations` with a reason — whether to flag it is yours.
 Signals of one conversation are read in the order they were said; the same words
 in another context are another signal. Without a context a signal is read as
-before.
+before. A signal that names an existing item is about it; new work in that
+item's area is a new subject with the item as an association. Agreement ("let us
+implement that") turns the agreed work into requirements, and a correction ("no,
+new task") retracts exactly what was recorded on the wrong subject.
 
 etchmem only records. Whether what it recorded is enough for *your* task is
 yours to decide — for example: a signal about work that produced no claims on

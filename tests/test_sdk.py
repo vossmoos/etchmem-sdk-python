@@ -106,7 +106,8 @@ SIGNAL_BODY = {
          "quote": "the links", "reason": "the thread is about followup-3", "in_focus": True}],
         "associations": [{"name": "LIFT-22", "entity_type": "ticket",
                           "reason": "earlier followup work, done"}],
-        "focus": ["followup-3 (feature)"]},
+        "focus": ["followup-3 (feature)"],
+        "meaning": "The links idea for followup-3 is agreed."},
     "created_at": 2.0, "occurred_at": 1.5,
     "claims": [{"id": "c9", "entity_name": "followup-3", "property": "idea",
                 "value": "add links", "polarity": "asserted", "detail": "As an idea, we add the links.",
@@ -402,9 +403,11 @@ def test_signal_context_focus_and_associations(full_mem):
     r = full_mem.signal("sig-1")
     assert (r.context, r.context_parent) == ("slack:C1:1.0", "slack:C1")
     assert r.focus == ["followup-3 (feature)"] and r.subjects[0].in_focus
+    assert r.meaning == "The links idea for followup-3 is agreed."
     assert [(a.name, a.reason) for a in r.associations] == [("LIFT-22", "earlier followup work, done")]
     old = full_mem.signal("sig-2")                         # deposited without a context
     assert old.context is None and old.focus is None and old.associations == []
+    assert old.meaning == ""
 
 
 def test_context_record(full_mem):
